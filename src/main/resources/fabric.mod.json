@@ -1,0 +1,31 @@
+{
+	"schemaVersion": 1,
+	"id": "vnc-client-mc",
+	"version": "${version}",
+	"name": "VNC Client For MC",
+	"description": "Display VNC screen as hologram in Minecraft",
+	"authors": [
+		"HooriNeko"
+	],
+	"contact": {
+		"homepage": "https://github.com/HooriNeko/vnc-client-mc",
+		"sources": "https://github.com/HooriNeko/vnc-client-mc"
+	},
+	"license": "MIT",
+	"icon": "assets/vnc-client-mc/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.hoorinekoneko.vncclientmc.VNCClientMod"
+		]
+	},
+	"mixins": [
+		"vnc-client-mc.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.16.9",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
