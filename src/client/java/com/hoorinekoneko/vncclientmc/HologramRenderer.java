@@ -1,7 +1,6 @@
 package com.hoorinekoneko.vncclientmc;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
@@ -14,18 +13,23 @@ public class HologramRenderer {
     private boolean visible = true;
     private float scale = 1.0f;
     private float distance = 3.0f;
+    private int quality = 64;
     private BufferedImage currentImage;
-    private static final int TARGET_WIDTH = 128;
-    private static final int TARGET_HEIGHT = 128;
+    private int lastQuality = 64;
 
     public void updateImage(BufferedImage image) {
         if (image == null) return;
+
+        if (currentImage == null || lastQuality != quality) {
+            currentImage = new BufferedImage(quality, quality, BufferedImage.TYPE_INT_RGB);
+            lastQuality = quality;
+        }
         
-        BufferedImage scaled = new BufferedImage(TARGET_WIDTH, TARGET_HEIGHT, BufferedImage.TYPE_INT_RGB);
-        java.awt.Graphics2D g2d = scaled.createGraphics();
+        java.awt.Graphics2D g2d = currentImage.createGraphics();
+        g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         
         float srcAspect = (float) image.getWidth() / image.getHeight();
-        float dstAspect = (float) TARGET_WIDTH / TARGET_HEIGHT;
+        float dstAspect = 1.0f;
         
         int srcX, srcY, srcW, srcH;
         if (srcAspect > dstAspect) {
@@ -40,10 +44,8 @@ public class HologramRenderer {
             srcY = (image.getHeight() - srcH) / 2;
         }
         
-        g2d.drawImage(image, 0, 0, TARGET_WIDTH, TARGET_HEIGHT, srcX, srcY, srcX + srcW, srcY + srcH, null);
+        g2d.drawImage(image, 0, 0, quality, quality, srcX, srcY, srcX + srcW, srcY + srcH, null);
         g2d.dispose();
-        
-        this.currentImage = scaled;
     }
 
     public void render(MatrixStack matrices, VertexConsumerProvider vertexConsumers, float tickDelta) {
@@ -81,7 +83,7 @@ public class HologramRenderer {
 
         int[] pixels = currentImage.getRGB(0, 0, width, height, null, 0, width);
 
-        int blockSize = 8;
+        int blockSize = Math.max(1, width / 32);
         for (int by = 0; by < height; by += blockSize) {
             for (int bx = 0; bx < width; bx += blockSize) {
                 int avgR = 0, avgG = 0, avgB = 0, count = 0;
@@ -96,23 +98,25 @@ public class HologramRenderer {
                     }
                 }
                 
-                avgR /= count;
-                avgG /= count;
-                avgB /= count;
+                if (count > 0) {
+                    avgR /= count;
+                    avgG /= count;
+                    avgB /= count;
 
-                float x1 = (bx / (float) width) * 2 - 1;
-                float y1 = (by / (float) height) * 2 - 1;
-                float x2 = ((bx + blockSize) / (float) width) * 2 - 1;
-                float y2 = ((by + blockSize) / (float) height) * 2 - 1;
+                    float x1 = (bx / (float) width) * 2 - 1;
+                    float y1 = (by / (float) height) * 2 - 1;
+                    float x2 = ((bx + blockSize) / (float) width) * 2 - 1;
+                    float y2 = ((by + blockSize) / (float) height) * 2 - 1;
 
-                float r = avgR / 255f;
-                float g = avgG / 255f;
-                float b = avgB / 255f;
+                    float r = avgR / 255f;
+                    float g = avgG / 255f;
+                    float b = avgB / 255f;
 
-                buffer.vertex(matrix, x1, y2, 0).color(r, g, b, 1.0f);
-                buffer.vertex(matrix, x2, y2, 0).color(r, g, b, 1.0f);
-                buffer.vertex(matrix, x2, y1, 0).color(r, g, b, 1.0f);
-                buffer.vertex(matrix, x1, y1, 0).color(r, g, b, 1.0f);
+                    buffer.vertex(matrix, x1, y2, 0).color(r, g, b, 0.9f);
+                    buffer.vertex(matrix, x2, y2, 0).color(r, g, b, 0.9f);
+                    buffer.vertex(matrix, x2, y1, 0).color(r, g, b, 0.9f);
+                    buffer.vertex(matrix, x1, y1, 0).color(r, g, b, 0.9f);
+                }
             }
         }
 
@@ -127,9 +131,12 @@ public class HologramRenderer {
         return visible;
     }
 
+    public void toggleVisible() {
+        this.visible = !this.visible;
+    }
+
     public void setScale(float scale) {
-        this.scale = scale;
-        VNCClientMod.LOGGER.info("Hologram scale set to {}", scale);
+        this.scale = Math.max(0.1f, Math.min(10.0f, scale));
     }
 
     public float getScale() {
@@ -138,10 +145,17 @@ public class HologramRenderer {
 
     public void setDistance(float distance) {
         this.distance = Math.max(1.0f, Math.min(20.0f, distance));
-        VNCClientMod.LOGGER.info("Hologram distance set to {}", this.distance);
     }
 
     public float getDistance() {
         return distance;
+    }
+
+    public void setQuality(int quality) {
+        this.quality = Math.max(32, Math.min(256, quality));
+    }
+
+    public int getQuality() {
+        return quality;
     }
 }
