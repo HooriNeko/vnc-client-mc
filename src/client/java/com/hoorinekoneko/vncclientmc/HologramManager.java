@@ -5,9 +5,12 @@ import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.registry.Registries;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.Direction;
+import net.minecraft.world.World;
 import org.joml.Matrix4f;
 
 import java.awt.image.BufferedImage;
@@ -17,10 +20,14 @@ public class HologramManager {
     private BlockPos hologramPos;
     private boolean active = false;
     private boolean visible = true;
+    private boolean controlling = false;
     private float scale = 2.0f;
     private int quality = 128;
     private long lastUpdateTime = 0;
     private static final long UPDATE_INTERVAL = 100;
+
+    private int remoteWidth = 1920;
+    private int remoteHeight = 1080;
 
     public void placeHologram() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -46,6 +53,7 @@ public class HologramManager {
         armorStand.setCustomNameVisible(false);
         armorStand.setArms(false);
         armorStand.setSmall(true);
+        armorStand.setGlowing(true);
 
         NbtCompound nbt = new NbtCompound();
         nbt.putBoolean("NoBasePlate", true);
@@ -61,7 +69,7 @@ public class HologramManager {
         this.active = true;
 
         VNCClientMod.LOGGER.info("Hologram placed at {}", targetPos);
-        sendMessage("Hologram placed at your feet");
+        sendMessage("Hologram placed. Click on it to control VNC.");
     }
 
     public void removeHologram() {
@@ -69,6 +77,8 @@ public class HologramManager {
         if (client.player == null || client.world == null) {
             return;
         }
+
+        stopControlling();
 
         if (hologramEntity != null) {
             client.world.removeEntity(hologramEntity.getId(), net.minecraft.entity.Entity.RemovalReason.DISCARDED);
@@ -106,7 +116,152 @@ public class HologramManager {
 
         if (VNCClientMod.vncManager != null && VNCClientMod.vncManager.isConnected()) {
             VNCClientMod.vncManager.updateFrame();
+            
+            BufferedImage frame = VNCClientMod.vncManager.getCurrentFrame();
+            if (frame != null) {
+                remoteWidth = frame.getWidth();
+                remoteHeight = frame.getHeight();
+            }
         }
+    }
+
+    public boolean isLookingAtHologram() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null || client.world == null || hologramEntity == null) {
+            return false;
+        }
+
+        Vec3d cameraPos = client.player.getCameraPosVec(1.0f);
+        Vec3d lookVec = client.player.getRotationVec(1.0f);
+        
+        double reachDistance = client.interactionManager.getReachDistance() + 2.0;
+        
+        Vec3d endPos = cameraPos.add(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance);
+        
+        Vec3d hologramWorldPos = hologramEntity.getPos();
+        Vec3d hologramMin = new Vec3d(hologramWorldPos.x - scale * 0.5, hologramWorldPos.y + 1.0, hologramWorldPos.z - scale * 0.5);
+        Vec3d hologramMax = new Vec3d(hologramWorldPos.x + scale * 0.5, hologramWorldPos.y + 1.0 + scale, hologramWorldPos.z + scale * 0.5);
+        
+        return rayIntersectsBox(cameraPos, endPos, hologramMin, hologramMax);
+    }
+
+    private boolean rayIntersectsBox(Vec3d rayOrigin, Vec3d rayEnd, Vec3d boxMin, Vec3d boxMax) {
+        double tMin = Double.NEGATIVE_INFINITY;
+        double tMax = Double.POSITIVE_INFINITY;
+
+        if (rayOrigin.x <= boxMin.x && rayEnd.x >= boxMin.x) {
+            tMin = Math.max(tMin, (boxMin.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+            tMax = Math.min(tMax, (boxMax.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+        } else if (rayOrigin.x >= boxMax.x && rayEnd.x <= boxMax.x) {
+            tMin = Math.max(tMin, (boxMax.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+            tMax = Math.min(tMax, (boxMin.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+        } else if (rayOrigin.x >= boxMin.x && rayOrigin.x <= boxMax.x) {
+            if (rayEnd.x > rayOrigin.x) {
+                tMax = Math.min(tMax, (boxMax.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+            } else {
+                tMax = Math.min(tMax, (boxMin.x - rayOrigin.x) / (rayEnd.x - rayOrigin.x));
+            }
+        } else {
+            return false;
+        }
+
+        if (rayOrigin.y <= boxMin.y && rayEnd.y >= boxMin.y) {
+            tMin = Math.max(tMin, (boxMin.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+            tMax = Math.min(tMax, (boxMax.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+        } else if (rayOrigin.y >= boxMax.y && rayEnd.y <= boxMax.y) {
+            tMin = Math.max(tMin, (boxMax.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+            tMax = Math.min(tMax, (boxMin.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+        } else if (rayOrigin.y >= boxMin.y && rayOrigin.y <= boxMax.y) {
+            if (rayEnd.y > rayOrigin.y) {
+                tMax = Math.min(tMax, (boxMax.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+            } else {
+                tMax = Math.min(tMax, (boxMin.y - rayOrigin.y) / (rayEnd.y - rayOrigin.y));
+            }
+        } else {
+            return false;
+        }
+
+        if (rayOrigin.z <= boxMin.z && rayEnd.z >= boxMin.z) {
+            tMin = Math.max(tMin, (boxMin.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+            tMax = Math.min(tMax, (boxMax.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+        } else if (rayOrigin.z >= boxMax.z && rayEnd.z <= boxMax.z) {
+            tMin = Math.max(tMin, (boxMax.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+            tMax = Math.min(tMax, (boxMin.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+        } else if (rayOrigin.z >= boxMin.z && rayOrigin.z <= boxMax.z) {
+            if (rayEnd.z > rayOrigin.z) {
+                tMax = Math.min(tMax, (boxMax.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+            } else {
+                tMax = Math.min(tMax, (boxMin.z - rayOrigin.z) / (rayEnd.z - rayOrigin.z));
+            }
+        } else {
+            return false;
+        }
+
+        return tMax >= tMin && tMax >= 0;
+    }
+
+    public Vec2f getClickPositionOnHologram() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null || hologramEntity == null) {
+            return new Vec2f(0, 0);
+        }
+
+        Vec3d cameraPos = client.player.getCameraPosVec(1.0f);
+        Vec3d lookVec = client.player.getRotationVec(1.0f);
+        
+        double reachDistance = client.interactionManager.getReachDistance() + 2.0;
+        
+        Vec3d hologramWorldPos = hologramEntity.getPos();
+        
+        Vec3d centerOffset = new Vec3d(hologramWorldPos.x, hologramWorldPos.y + 1.0 + scale * 0.5, hologramWorldPos.z);
+        
+        Vec3d toCenter = centerOffset.subtract(cameraPos);
+        
+        double t = toCenter.dotProduct(lookVec);
+        if (t <= 0) {
+            return new Vec2f(0, 0);
+        }
+        
+        Vec3d hitPoint = cameraPos.add(lookVec.x * t, lookVec.y * t, lookVec.z * t);
+        
+        double relX = hitPoint.x - hologramWorldPos.x;
+        double relY = hitPoint.y - (hologramWorldPos.y + 1.0);
+        double relZ = hitPoint.z - hologramWorldPos.z;
+        
+        double halfSize = scale * 0.5;
+        float screenX = (float)((relX + halfSize) / scale);
+        float screenY = 1.0f - (float)((relY + halfSize) / scale);
+        
+        screenX = Math.max(0, Math.min(1, screenX));
+        screenY = Math.max(0, Math.min(1, screenY));
+        
+        int remoteX = (int)(screenX * remoteWidth);
+        int remoteY = (int)(screenY * remoteHeight);
+        
+        return new Vec2f(remoteX, remoteY);
+    }
+
+    public void startControlling() {
+        if (!active || controlling) {
+            return;
+        }
+        controlling = true;
+        VNCClientMod.LOGGER.info("Started controlling VNC");
+    }
+
+    public void stopControlling() {
+        if (!controlling) {
+            return;
+        }
+        controlling = false;
+        if (VNCClientMod.vncManager != null) {
+            VNCClientMod.vncManager.releaseAllKeys();
+        }
+        VNCClientMod.LOGGER.info("Stopped controlling VNC");
+    }
+
+    public boolean isControlling() {
+        return controlling;
     }
 
     public void renderHologram(MatrixStack matrices, VertexConsumerProvider vertexConsumers, float tickDelta) {
@@ -229,7 +384,6 @@ public class HologramManager {
 
     public void setScale(float scale) {
         this.scale = Math.max(0.5f, Math.min(10.0f, scale));
-        sendMessage("Hologram scale: " + this.scale);
     }
 
     public float getScale() {
@@ -238,7 +392,6 @@ public class HologramManager {
 
     public void setQuality(int quality) {
         this.quality = Math.max(32, Math.min(256, quality));
-        sendMessage("Hologram quality: " + this.quality);
     }
 
     public int getQuality() {
@@ -251,7 +404,11 @@ public class HologramManager {
 
     public void printStatus() {
         if (active && hologramPos != null) {
-            sendMessage("Hologram at " + hologramPos.getX() + ", " + hologramPos.getY() + ", " + hologramPos.getZ());
+            String status = String.format("Hologram at %d, %d, %d", hologramPos.getX(), hologramPos.getY(), hologramPos.getZ());
+            if (controlling) {
+                status += " [CONTROLLING]";
+            }
+            sendMessage(status);
         } else {
             sendMessage("Hologram not placed. Use /vnc holo place");
         }
@@ -261,6 +418,16 @@ public class HologramManager {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player != null) {
             client.player.sendMessage(net.minecraft.text.Text.literal(message), false);
+        }
+    }
+
+    public static class Vec2f {
+        public final int x;
+        public final int y;
+
+        public Vec2f(int x, int y) {
+            this.x = x;
+            this.y = y;
         }
     }
 }

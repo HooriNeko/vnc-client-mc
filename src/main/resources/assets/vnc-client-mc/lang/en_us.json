@@ -1,4 +1,5 @@
 {
 	"key.categories.vnc-client-mc": "VNC Client",
-	"key.vnc-client-mc.toggle_hologram": "Toggle Hologram"
+	"key.vnc-client-mc.toggle_hologram": "Toggle Hologram",
+	"key.vnc-client-mc.control_mode": "Toggle Control Mode"
 }
