@@ -1,6 +1,6 @@
 # VNC Client For MC
 
-在Minecraft里显示远程电脑画面的Fabric Mod。
+在Minecraft世界里放置VNC全息投影。
 
 ## 运行环境
 
@@ -22,24 +22,29 @@
 ```
 /vnc connect <IP或主机名>        - 连接VNC服务器
 /vnc disconnect                  - 断开连接
-/vnc hologram show               - 显示全息图
-/vnc hologram hide              - 隐藏全息图
-/vnc hologram toggle            - 切换显示/隐藏
-/vnc hologram scale <数值>      - 设置缩放 (0.1-10)
-/vnc hologram distance <数值>   - 设置距离 (1-20)
-/vnc hologram quality <数值>     - 设置画质 (32=低, 64=中, 128=高, 256=最高)
-/vnc status                     - 查看连接状态
+/vnc holo place                 - 在脚下放置全息投影
+/vnc holo remove                - 移除全息投影
+/vnc holo scale <数值>          - 设置缩放 (0.5-10)
+/vnc holo quality <数值>         - 设置画质 (32=低, 64=中, 128=高, 256=最高)
+/vnc status                     - 查看状态
 ```
 
 ### 按键
 
-- `H` - 切换全息图显示
+- `H` - 切换全息投影显示/隐藏
 
-连接成功后全息图会自动显示在眼前，跟着你的视角动。
+### 使用流程
 
-## 原理
+1. `/vnc connect <你的VNC服务器IP>`
+2. `/vnc holo place` - 在脚下放置全息投影
+3. 全息投影会显示VNC画面，固定在世界某位置
 
-用Vernacular库连VNC服务器，把远程画面截下来渲染到屏幕上。纯客户端Mod，不需要服务器装。
+## 技术细节
+
+- 全息投影基于ArmorStand实体
+- VNC连接使用Vernacular库
+- 纯客户端Mod，不需要服务器装
+- 单人游戏有效；多人游戏需要所有玩家都装此Mod
 
 ## 开发
 

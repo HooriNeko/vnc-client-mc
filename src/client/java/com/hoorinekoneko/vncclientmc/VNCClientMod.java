@@ -1,11 +1,13 @@
 package com.hoorinekoneko.vncclientmc;
 
+import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
@@ -14,12 +16,12 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class VNCClientMod implements ModInitializer {
+public class VNCClientMod implements ClientModInitializer {
     public static final String MOD_ID = "vnc-client-mc";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public static VNCManager vncManager;
-    public static HologramRenderer hologramRenderer;
+    public static HologramManager hologramManager;
 
     private static final String DEFAULT_VNC_HOST = "localhost";
     private static final int DEFAULT_VNC_PORT = 5900;
@@ -27,11 +29,11 @@ public class VNCClientMod implements ModInitializer {
     private KeyBinding toggleHologramKey;
 
     @Override
-    public void onInitialize() {
-        LOGGER.info("VNC Client For MC initializing...");
+    public void onInitializeClient() {
+        LOGGER.info("VNC Client For MC initializing (client)...");
 
         vncManager = new VNCManager();
-        hologramRenderer = new HologramRenderer();
+        hologramManager = new HologramManager();
 
         toggleHologramKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.vnc-client-mc.toggle_hologram",
@@ -42,7 +44,8 @@ public class VNCClientMod implements ModInitializer {
 
         ClientCommandRegistrationCallback.EVENT.register(this::registerCommands);
         ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
-        HudRenderCallback.EVENT.register(this::onHudRender);
+
+        WorldRenderEvents.AFTER_ENTITIES.register(this::onAfterEntities);
 
         LOGGER.info("VNC Client For MC initialized!");
     }
@@ -65,18 +68,16 @@ public class VNCClientMod implements ModInitializer {
                         return 1;
                     })
                 )
-                .then(CommandManager.literal("hologram")
-                    .then(CommandManager.literal("show")
+                .then(CommandManager.literal("holo")
+                    .then(CommandManager.literal("place")
                         .executes(ctx -> {
-                            hologramRenderer.setVisible(true);
-                            sendFeedback("Hologram enabled");
+                            hologramManager.placeHologram();
                             return 1;
                         })
                     )
-                    .then(CommandManager.literal("hide")
+                    .then(CommandManager.literal("remove")
                         .executes(ctx -> {
-                            hologramRenderer.setVisible(false);
-                            sendFeedback("Hologram disabled");
+                            hologramManager.removeHologram();
                             return 1;
                         })
                     )
@@ -84,40 +85,25 @@ public class VNCClientMod implements ModInitializer {
                         .then(CommandManager.argument("value", net.fabricmc.fabric.api.client.command.v2.ArgumentTypes.floatArg())
                             .executes(ctx -> {
                                 float scale = ctx.getArgument("value", Float.class);
-                                hologramRenderer.setScale(scale);
-                                sendFeedback("Hologram scale: " + scale);
+                                hologramManager.setScale(scale);
                                 return 1;
                             })
-                    )
-                    .then(CommandManager.literal("distance")
-                        .then(CommandManager.argument("value", net.fabricmc.fabric.api.client.command.v2.ArgumentTypes.floatArg())
-                            .executes(ctx -> {
-                                float distance = ctx.getArgument("value", Float.class);
-                                hologramRenderer.setDistance(distance);
-                                sendFeedback("Hologram distance: " + distance);
-                                return 1;
-                            })
+                        )
                     )
                     .then(CommandManager.literal("quality")
                         .then(CommandManager.argument("level", net.fabricmc.fabric.api.client.command.v2.ArgumentTypes.integer())
                             .executes(ctx -> {
                                 int quality = ctx.getArgument("level", Integer.class);
-                                hologramRenderer.setQuality(quality);
-                                sendFeedback("Hologram quality: " + quality + " (32=low, 64=medium, 128=high)");
+                                hologramManager.setQuality(quality);
                                 return 1;
                             })
-                    )
-                    .then(CommandManager.literal("toggle")
-                        .executes(ctx -> {
-                            hologramRenderer.toggleVisible();
-                            sendFeedback("Hologram " + (hologramRenderer.isVisible() ? "enabled" : "disabled"));
-                            return 1;
-                        })
+                        )
                     )
                 )
                 .then(CommandManager.literal("status")
                     .executes(ctx -> {
                         vncManager.printStatus();
+                        hologramManager.printStatus();
                         return 1;
                     })
                 )
@@ -126,29 +112,23 @@ public class VNCClientMod implements ModInitializer {
 
     private void onClientTick(MinecraftClient client) {
         if (toggleHologramKey.wasPressed()) {
-            hologramRenderer.toggleVisible();
-            sendFeedback("Hologram " + (hologramRenderer.isVisible() ? "enabled" : "disabled"));
+            hologramManager.toggleHologram();
         }
 
         if (vncManager.isConnected()) {
             vncManager.updateFrame();
         }
+
+        hologramManager.update();
     }
 
-    private void onHudRender(net.minecraft.client.gui.DrawContext drawContext, net.minecraft.client.render.RenderTickCounter tickCounter) {
-        if (hologramRenderer != null && hologramRenderer.isVisible()) {
-            hologramRenderer.render(
-                drawContext.getMatrices(),
-                drawContext.getVertexConsumers(),
-                tickCounter.getTickDelta(true)
+    private void onAfterEntities(WorldRenderContext context) {
+        if (hologramManager != null && hologramManager.isHologramActive()) {
+            hologramManager.renderHologram(
+                context.matrixStack(),
+                context.consumers(),
+                context.tickCounter().getTickDelta(true)
             );
-        }
-    }
-
-    private void sendFeedback(String message) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player != null) {
-            client.player.sendMessage(net.minecraft.text.Text.literal(message), false);
         }
     }
 }
